@@ -1,0 +1,35 @@
+export default {
+  app: {
+    title: 'File Meta',
+    openFolder: 'Open Folder',
+    save: 'Save',
+    saving: 'Saving...',
+    saved: 'Saved',
+    darkMode: 'Dark Mode',
+    lightMode: 'Light Mode',
+    language: 'Language',
+    recentFolders: 'Recent Folders',
+    noRecent: 'No recent folders',
+    removeRecent: 'Remove from history',
+    permissionDenied: 'Permission denied, please try again',
+  },
+  sidebar: {
+    searchPlaceholder: 'Search files...',
+    noFiles: 'No files found',
+    filesCount: '{count} files',
+  },
+  editor: {
+    selectFile: 'Select a file from the sidebar to start annotating',
+    placeholder: 'Start writing annotations...',
+    noFolder: 'Open a folder to get started',
+    noFolderDesc: 'Click the "Open Folder" button above to select a local folder and start annotating files.',
+    imageUploading: 'Compressing image...',
+    imageError: 'Failed to process image',
+  },
+  status: {
+    ready: 'Ready',
+    modified: 'Modified',
+    loading: 'Loading...',
+    error: 'Error',
+  },
+}

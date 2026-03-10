@@ -1,0 +1,35 @@
+export default {
+  app: {
+    title: 'File Meta',
+    openFolder: '打开文件夹',
+    save: '保存',
+    saving: '保存中...',
+    saved: '已保存',
+    darkMode: '深色模式',
+    lightMode: '浅色模式',
+    language: '语言',
+    recentFolders: '最近文件夹',
+    noRecent: '暂无历史记录',
+    removeRecent: '从历史中移除',
+    permissionDenied: '权限被拒绝，请重试',
+  },
+  sidebar: {
+    searchPlaceholder: '搜索文件...',
+    noFiles: '未找到文件',
+    filesCount: '共 {count} 个文件',
+  },
+  editor: {
+    selectFile: '从左侧选择文件以开始标注',
+    placeholder: '开始编写标注...',
+    noFolder: '打开文件夹开始使用',
+    noFolderDesc: '点击上方"打开文件夹"按钮，选择本地文件夹并开始为文件添加标注。',
+    imageUploading: '正在压缩图片...',
+    imageError: '图片处理失败',
+  },
+  status: {
+    ready: '就绪',
+    modified: '已修改',
+    loading: '加载中...',
+    error: '错误',
+  },
+}
