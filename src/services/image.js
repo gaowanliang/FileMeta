@@ -1,10 +1,33 @@
 import { v4 as uuidv4 } from 'uuid'
-import avifEncode from '@jsquash/avif/encode.js'
+import AvifWorker from './avif.worker.js?worker'
+
+let worker = null
+
+function getWorker() {
+  if (!worker) {
+    worker = new AvifWorker()
+  }
+  return worker
+}
+
+function encodeInWorker(imageData, options) {
+  return new Promise((resolve, reject) => {
+    const w = getWorker()
+    w.onmessage = (e) => {
+      if (e.data.error) {
+        reject(new Error(e.data.error))
+      } else {
+        resolve(e.data.buffer)
+      }
+    }
+    w.onerror = (err) => reject(err)
+    w.postMessage({ imageData, options })
+  })
+}
 
 /**
- * Compress image to AVIF using @jsquash/avif WASM encoder.
- * Canvas.convertToBlob does NOT actually encode AVIF in most browsers,
- * silently falling back to PNG. This uses the real libavif WASM encoder.
+ * Compress image to AVIF using @jsquash/avif WASM encoder in a Web Worker.
+ * Runs off the main thread so the UI stays responsive.
  */
 export async function compressImage(file) {
   const bitmap = await createImageBitmap(file)
@@ -22,15 +45,12 @@ export async function compressImage(file) {
   ctx.drawImage(bitmap, 0, 0, width, height)
   bitmap.close()
 
-  // Get raw pixel data for WASM encoder
   const imageData = ctx.getImageData(0, 0, width, height)
 
-  // Encode to AVIF via WASM — quality 50 gives excellent compression
-  // (0=worst, 100=lossless). Typically reduces 4MB PNG → 50-150KB AVIF.
-  const avifBuffer = await avifEncode(imageData, {
+  const avifBuffer = await encodeInWorker(imageData, {
     quality: 50,
-    speed: 6,
-    subsample: 1, // YUV420 for smaller size
+    speed: 8,
+    subsample: 1,
   })
 
   const imageId = uuidv4()
