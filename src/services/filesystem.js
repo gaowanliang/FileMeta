@@ -1,4 +1,5 @@
-export const DEFAULT_DB_FILENAME = '.annotations.pb.gz'
+export const DEFAULT_DB_FILENAME = '.annotations.fmdb'
+export const LEGACY_DB_FILENAME = '.annotations.pb.gz'
 const IDB_NAME = 'file-meta-history'
 const IDB_STORE = 'folders'
 const MAX_HISTORY = 20
@@ -165,8 +166,7 @@ export async function readDbFile(dirHandle, filename = DEFAULT_DB_FILENAME) {
   try {
     const fileHandle = await dirHandle.getFileHandle(filename)
     const file = await fileHandle.getFile()
-    const buffer = await file.arrayBuffer()
-    return new Uint8Array(buffer)
+    return { fileHandle, file }
   } catch {
     return null
   }
@@ -187,14 +187,17 @@ export async function deleteDbFile(dirHandle, filename) {
   }
 }
 
-/** Scan root of dirHandle for the first *.pb.gz file; returns its name or null. */
-export async function findPbGzFile(dirHandle) {
+/** Scan root of dirHandle for the first .fmdb or .pb.gz file; prefers .fmdb. */
+export async function findDbFile(dirHandle) {
+  let fmdbFile = null
+  let pbgzFile = null
   for await (const [name, handle] of dirHandle) {
-    if (handle.kind === 'file' && name.endsWith('.pb.gz')) {
-      return name
+    if (handle.kind === 'file') {
+      if (name.endsWith('.fmdb') && !fmdbFile) fmdbFile = name
+      else if (name.endsWith('.pb.gz') && !pbgzFile) pbgzFile = name
     }
   }
-  return null
+  return fmdbFile || pbgzFile || null
 }
 
 function getFileIcon(name) {

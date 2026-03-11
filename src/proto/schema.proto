@@ -6,8 +6,26 @@ message FileAnnotation {
   int64 updated_at = 2;
 }
 
-// 整个文件夹的全局数据库
+// 旧格式（v0，无容器头）
 message WorkspaceDB {
   map<string, FileAnnotation> files = 1;
   map<string, bytes> images = 2;
+}
+
+// ── FMDB 容器格式的各段 ────────────────────────────────────
+
+// 元数据段：仅文字标注
+message MetadataDB {
+  map<string, FileAnnotation> files = 1;
+}
+
+// 图片索引条目
+message ImageEntry {
+  uint32 offset = 1;
+  uint32 size = 2;
+}
+
+// 图片索引段
+message ImageIndex {
+  map<string, ImageEntry> entries = 1;
 }

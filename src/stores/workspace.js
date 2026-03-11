@@ -3,10 +3,11 @@ import { defineStore } from 'pinia'
 import {
   openDirectory, readFileTree, readDbFile, writeDbFile, deleteDbFile,
   saveToHistory, getHistory, getHistoryEntry, removeFromHistory, reopenFromHistory,
-  findPbGzFile, updateDbFilenameInHistory, DEFAULT_DB_FILENAME,
+  findDbFile, updateDbFilenameInHistory, DEFAULT_DB_FILENAME,
 } from '@/services/filesystem.js'
-import { encodeAndCompress, decompressAndDecode } from '@/services/protobuf.js'
-import { revokeAllImageUrls } from '@/services/image.js'
+import { decompressAndDecode } from '@/services/protobuf.js'
+import { detectFormat, readFmdbFile, writeFmdbFile } from '@/services/container.js'
+import { revokeAllImageUrls, revokeImageUrl, getCachedImageUrl, createImageUrlFromBlob } from '@/services/image.js'
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   // State
@@ -14,12 +15,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const folderName = ref('')
   const fileTree = ref([])
   const selectedFile = ref(null)
-  const files = ref({})       // Map<string, { markdownContent, updatedAt }>
-  const images = ref({})      // Map<string, Uint8Array>
+  const files = ref({})              // Map<string, { markdownContent, updatedAt }>
+  const imageIndex = ref({})         // Map<string, { offset, size }> — on-disk images
+  const pendingImages = ref({})      // Map<string, Uint8Array> — newly added, not yet saved
   const isDirty = ref(false)
   const isLoading = ref(false)
   const isSaving = ref(false)
-  const recentFolders = ref([])  // { name, handle, openedAt }[]
+  const recentFolders = ref([])      // { name, handle, openedAt }[]
   const dbFilename = ref(DEFAULT_DB_FILENAME)
   const darkMode = ref(
     window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
@@ -27,6 +29,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // UI modal state
   const showOrphanManager = ref(false)
   const showDbSettings = ref(false)
+
+  // Private — not reactive, not exposed
+  let _fileRef = null                // File object for lazy image reads
+  let _fileHandle = null             // FileSystemFileHandle for writes
+  let _legacyFilename = null         // original .pb.gz name during migration
 
   // Getters
   const currentAnnotation = computed(() => {
@@ -66,13 +73,46 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     )
   })
 
-  // Load a directory handle (shared by open + reopenRecent)
+  // ── Image lazy loading ──────────────────────────────────────
+
+  /**
+   * Get a blob URL for the given image. Checks cache → pendingImages → on-disk.
+   * Returns null if the image doesn't exist.
+   */
+  async function getImageUrl(imageId) {
+    // 1. Cached blob URL
+    const cached = getCachedImageUrl(imageId)
+    if (cached) return cached
+
+    // 2. Pending image (newly pasted, not yet saved)
+    const pending = pendingImages.value[imageId]
+    if (pending) {
+      const blob = new Blob([pending], { type: 'image/avif' })
+      return createImageUrlFromBlob(imageId, blob)
+    }
+
+    // 3. On-disk image via file.slice()
+    const entry = imageIndex.value[imageId]
+    if (entry && _fileRef) {
+      const blob = _fileRef.slice(entry.offset, entry.offset + entry.size, 'image/avif')
+      return createImageUrlFromBlob(imageId, blob)
+    }
+
+    return null
+  }
+
+  // ── Load a directory handle (shared by open + reopenRecent) ─
+
   async function loadHandle(handle) {
     dirHandle.value = handle
     folderName.value = handle.name
     selectedFile.value = null
     files.value = {}
-    images.value = {}
+    imageIndex.value = {}
+    pendingImages.value = {}
+    _fileRef = null
+    _fileHandle = null
+    _legacyFilename = null
     dbFilename.value = DEFAULT_DB_FILENAME
 
     // Determine the db filename: prefer stored history entry, else auto-detect
@@ -80,7 +120,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (histEntry?.dbFilename) {
       dbFilename.value = histEntry.dbFilename
     } else {
-      const detected = await findPbGzFile(handle)
+      const detected = await findDbFile(handle)
       if (detected) dbFilename.value = detected
     }
 
@@ -91,11 +131,30 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const tree = await readFileTree(handle, '', excludeSet)
     fileTree.value = tree
 
-    const dbData = await readDbFile(handle, dbFilename.value)
-    if (dbData) {
-      const decoded = await decompressAndDecode(dbData)
-      files.value = decoded.files || {}
-      images.value = decoded.images || {}
+    // Read db file
+    const result = await readDbFile(handle, dbFilename.value)
+    if (result) {
+      const { fileHandle: fh, file } = result
+      // Detect format from first 4 bytes
+      const headerBytes = new Uint8Array(await file.slice(0, 4).arrayBuffer())
+      const format = detectFormat(headerBytes)
+
+      if (format === 'fmdb') {
+        const data = await readFmdbFile(file)
+        files.value = data.files
+        imageIndex.value = data.imageIndex
+        _fileRef = file
+        _fileHandle = fh
+      } else if (format === 'legacy-pbgz') {
+        // Legacy: decompress everything, put images into pendingImages for migration
+        const buffer = new Uint8Array(await file.arrayBuffer())
+        const decoded = await decompressAndDecode(buffer)
+        files.value = decoded.files || {}
+        pendingImages.value = decoded.images || {}
+        // Schedule migration: next save writes FMDB under a new filename
+        _legacyFilename = dbFilename.value
+        dbFilename.value = dbFilename.value.replace(/\.pb\.gz$/, '.fmdb')
+      }
     }
 
     isDirty.value = false
@@ -105,7 +164,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await loadRecentFolders()
   }
 
-  // Actions
+  // ── Actions ─────────────────────────────────────────────────
+
   async function open() {
     isLoading.value = true
     try {
@@ -167,15 +227,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function addImage(imageId, data) {
-    images.value[imageId] = data
+    pendingImages.value[imageId] = data
     isDirty.value = true
   }
+
+  // ── Collect referenced image IDs from markdown ──────────────
+
+  function collectUsedImageIds(filesObj) {
+    const usedImages = new Set()
+    const imgRegex = /local-avif:\/\/([a-f0-9-]+)/g
+    for (const val of Object.values(filesObj)) {
+      let match
+      while ((match = imgRegex.exec(val.markdownContent)) !== null) {
+        usedImages.add(match[1])
+      }
+    }
+    return usedImages
+  }
+
+  // ── Save ────────────────────────────────────────────────────
 
   async function save() {
     if (!dirHandle.value || isSaving.value) return
     isSaving.value = true
     try {
-      // Clean up empty annotations
+      // 1. Clean up empty annotations
       const cleanFiles = {}
       for (const [key, val] of Object.entries(files.value)) {
         if (val?.markdownContent?.trim()) {
@@ -183,31 +259,55 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         }
       }
 
-      // Collect used image IDs from all markdown content
-      const usedImages = new Set()
-      const imgRegex = /local-avif:\/\/([a-f0-9-]+)/g
-      for (const val of Object.values(cleanFiles)) {
-        let match
-        while ((match = imgRegex.exec(val.markdownContent)) !== null) {
-          usedImages.add(match[1])
-        }
-      }
+      // 2. Collect referenced image IDs
+      const usedImages = collectUsedImageIds(cleanFiles)
 
-      // Only keep referenced images
-      const cleanImages = {}
-      for (const [id, data] of Object.entries(images.value)) {
+      // 3. Separate into existing (on-disk) vs new (pending), keeping only referenced
+      const existingImages = {}
+      for (const [id, entry] of Object.entries(imageIndex.value)) {
         if (usedImages.has(id)) {
-          cleanImages[id] = data
+          existingImages[id] = entry
+        } else {
+          revokeImageUrl(id)
         }
       }
 
-      const dbData = { files: cleanFiles, images: cleanImages }
-      const compressed = await encodeAndCompress(dbData)
-      await writeDbFile(dirHandle.value, compressed, dbFilename.value)
+      const newImages = {}
+      for (const [id, data] of Object.entries(pendingImages.value)) {
+        if (usedImages.has(id)) {
+          newImages[id] = data
+        } else {
+          revokeImageUrl(id)
+        }
+      }
 
+      // 4. Get or create file handle
+      const fh = _fileHandle
+        || await dirHandle.value.getFileHandle(dbFilename.value, { create: true })
+
+      // 5. Write FMDB container
+      const { imageIndex: newIndex } = await writeFmdbFile(fh, {
+        files: cleanFiles,
+        existingImages,
+        newImages,
+        oldFile: _fileRef,
+      })
+
+      // 6. Refresh state
+      const newFile = await fh.getFile()
+      _fileRef = newFile
+      _fileHandle = fh
       files.value = cleanFiles
-      images.value = cleanImages
+      imageIndex.value = newIndex
+      pendingImages.value = {}
       isDirty.value = false
+
+      // 7. Delete legacy .pb.gz if this was a migration save
+      if (_legacyFilename) {
+        await deleteDbFile(dirHandle.value, _legacyFilename)
+        await updateDbFilenameInHistory(folderName.value, dbFilename.value)
+        _legacyFilename = null
+      }
     } catch (e) {
       console.error('Failed to save:', e)
       throw e
@@ -216,40 +316,59 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
+  // ── Rename DB file ──────────────────────────────────────────
+
   /** Rename the database file on disk and update IDB history. */
   async function renameDbFile(newName) {
     if (!dirHandle.value) return
     const trimmed = newName.trim()
-    if (!trimmed || !trimmed.endsWith('.pb.gz')) {
+    if (!trimmed || (!trimmed.endsWith('.fmdb') && !trimmed.endsWith('.pb.gz'))) {
       throw new Error('invalidName')
     }
     if (trimmed === dbFilename.value) return
 
-    // Save current contents under the new filename
     isSaving.value = true
     try {
+      // Clean files + collect used images (same as save)
       const cleanFiles = {}
       for (const [key, val] of Object.entries(files.value)) {
         if (val?.markdownContent?.trim()) cleanFiles[key] = val
       }
-      const usedImages = new Set()
-      const imgRegex = /local-avif:\/\/([a-f0-9-]+)/g
-      for (const val of Object.values(cleanFiles)) {
-        let match
-        while ((match = imgRegex.exec(val.markdownContent)) !== null) usedImages.add(match[1])
+      const usedImages = collectUsedImageIds(cleanFiles)
+
+      const existingImages = {}
+      for (const [id, entry] of Object.entries(imageIndex.value)) {
+        if (usedImages.has(id)) existingImages[id] = entry
       }
-      const cleanImages = {}
-      for (const [id, data] of Object.entries(images.value)) {
-        if (usedImages.has(id)) cleanImages[id] = data
+      const newImages = {}
+      for (const [id, data] of Object.entries(pendingImages.value)) {
+        if (usedImages.has(id)) newImages[id] = data
       }
 
-      const compressed = await encodeAndCompress({ files: cleanFiles, images: cleanImages })
-      await writeDbFile(dirHandle.value, compressed, trimmed)
+      // Write to new filename
+      const newFh = await dirHandle.value.getFileHandle(trimmed, { create: true })
+      const { imageIndex: newIndex } = await writeFmdbFile(newFh, {
+        files: cleanFiles,
+        existingImages,
+        newImages,
+        oldFile: _fileRef,
+      })
+
+      // Delete old file
       await deleteDbFile(dirHandle.value, dbFilename.value)
+      if (_legacyFilename) {
+        await deleteDbFile(dirHandle.value, _legacyFilename)
+        _legacyFilename = null
+      }
 
+      // Refresh state
+      const newFile = await newFh.getFile()
+      _fileRef = newFile
+      _fileHandle = newFh
       dbFilename.value = trimmed
       files.value = cleanFiles
-      images.value = cleanImages
+      imageIndex.value = newIndex
+      pendingImages.value = {}
       isDirty.value = false
 
       await updateDbFilenameInHistory(folderName.value, trimmed)
@@ -257,6 +376,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       isSaving.value = false
     }
   }
+
+  // ── Orphan management ───────────────────────────────────────
 
   /** Move an orphaned annotation to a new file path. */
   function reassignOrphan(oldPath, newPath) {
@@ -271,6 +392,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     delete files.value[path]
     isDirty.value = true
   }
+
+  // ── Dark mode ───────────────────────────────────────────────
 
   function toggleDarkMode() {
     darkMode.value = !darkMode.value
@@ -287,7 +410,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fileTree,
     selectedFile,
     files,
-    images,
+    imageIndex,
+    pendingImages,
     isDirty,
     isLoading,
     isSaving,
@@ -309,6 +433,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectFile,
     updateMarkdown,
     addImage,
+    getImageUrl,
     save,
     renameDbFile,
     reassignOrphan,

@@ -68,9 +68,20 @@ export async function compressImage(file, options = {}) {
 
 const objectUrls = new Map()
 
+export function getCachedImageUrl(imageId) {
+  return objectUrls.get(imageId) || null
+}
+
 export function createImageUrl(imageId, data) {
   if (objectUrls.has(imageId)) return objectUrls.get(imageId)
   const blob = new Blob([data], { type: 'image/avif' })
+  const url = URL.createObjectURL(blob)
+  objectUrls.set(imageId, url)
+  return url
+}
+
+export function createImageUrlFromBlob(imageId, blob) {
+  if (objectUrls.has(imageId)) return objectUrls.get(imageId)
   const url = URL.createObjectURL(blob)
   objectUrls.set(imageId, url)
   return url

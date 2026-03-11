@@ -2,7 +2,7 @@
 import { watch, onBeforeUnmount, ref, computed } from 'vue'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import { useSettingsStore } from '@/stores/settings.js'
-import { compressImage, createImageUrl } from '@/services/image.js'
+import { compressImage } from '@/services/image.js'
 
 import MilkdownEditorInner from './MilkdownEditorInner.vue'
 
@@ -91,11 +91,9 @@ function resolveImageUrls(element) {
     const src = img.getAttribute('src') || ''
     const match = src.match(/^local-avif:\/\/(.+)$/)
     if (match) {
-      const imageId = match[1]
-      const data = store.images[imageId]
-      if (data) {
-        img.src = createImageUrl(imageId, data)
-      }
+      store.getImageUrl(match[1]).then(url => {
+        if (url && img.src !== url) img.src = url
+      })
     }
   }
 }

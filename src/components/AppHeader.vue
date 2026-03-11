@@ -27,7 +27,7 @@ const showDbSettings = ref(false)
 const dbSettingsPanelRef = ref(null)
 const dbSettingsGroupRef = ref(null)
 const newDbBaseName = ref('')
-const newDbExtOption = ref('.pb.gz')
+const newDbExtOption = ref('.fmdb')
 const newDbCustomExt = ref('')
 const dbRenameError = ref('')
 const dbRenameSuccess = ref(false)
@@ -52,6 +52,9 @@ function switchLanguage(value) {
 }
 
 function parseDbFilename(full) {
+  if (full.endsWith('.fmdb')) {
+    return { base: full.slice(0, -5), ext: '.fmdb', custom: '' }
+  }
   if (full.endsWith('.pb.gz')) {
     return { base: full.slice(0, -6), ext: '.pb.gz', custom: '' }
   }
@@ -74,8 +77,8 @@ async function handleRename() {
   dbRenameError.value = ''
   dbRenameSuccess.value = false
   const trimmed = computedNewDbName.value
-  if (!trimmed.endsWith('.pb.gz')) {
-    dbRenameError.value = t('dbSettings.mustEndWithPbGz')
+  if (!trimmed.endsWith('.fmdb') && !trimmed.endsWith('.pb.gz')) {
+    dbRenameError.value = t('dbSettings.mustEndWithValidExt')
     return
   }
   if (trimmed === store.dbFilename) {
@@ -273,7 +276,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside, true
                 <div class="db-split-col db-split-ext">
                   <label class="db-field-label">{{ t('dbSettings.extension') }}</label>
                   <select v-model="newDbExtOption" class="db-ext-select">
-                    <option value=".pb.gz">.pb.gz</option>
+                    <option value=".fmdb">.fmdb</option>
+                    <option value=".pb.gz">.pb.gz (legacy)</option>
                     <option value="custom">{{ t('dbSettings.customExt') }}</option>
                   </select>
                 </div>
