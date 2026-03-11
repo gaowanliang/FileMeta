@@ -91,10 +91,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return createImageUrlFromBlob(imageId, blob)
     }
 
-    // 3. On-disk image via file.slice()
+    // 3. On-disk image — read bytes into memory so the blob URL
+    //    survives file rewrites (file.slice() Blobs break after save)
     const entry = imageIndex.value[imageId]
     if (entry && _fileRef) {
-      const blob = _fileRef.slice(entry.offset, entry.offset + entry.size, 'image/avif')
+      const buf = await _fileRef.slice(entry.offset, entry.offset + entry.size).arrayBuffer()
+      const blob = new Blob([buf], { type: 'image/avif' })
       return createImageUrlFromBlob(imageId, blob)
     }
 
