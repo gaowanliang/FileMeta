@@ -23,10 +23,10 @@ Pick a local folder and the app displays its file tree on the left. Click any fi
 
 ### Database File Management
 - Default database filename is `.annotations.fmdb`
-- Fully customizable: the name and extension are entered separately, with `.fmdb` as the default extension; `.pb.gz` (legacy format) and custom extensions are also supported
+- Fully customizable: the name and extension are entered separately, with `.fmdb` as the default extension; custom extensions are also supported
 - The chosen filename is persisted in IndexedDB and restored automatically the next time the same folder is opened
-- When opening a folder, `.fmdb` and `.pb.gz` files at the root are detected and loaded automatically (`.fmdb` takes priority) — no manual selection needed
-- Legacy `.pb.gz` files are automatically migrated to the new format on the first save
+- When opening a folder, `.fmdb` files at the root are detected and loaded automatically — no manual selection needed
+- Legacy `.pb.gz` files are also detected and automatically migrated to FMDB format on the first save
 
 ### Orphan Annotation Manager
 - When a file that has an annotation gets deleted or moved, the annotation is not lost — it becomes an "orphan"
@@ -55,7 +55,7 @@ All settings are saved to `localStorage` and persist across page reloads.
 
 ### FMDB Container Format
 
-The file consists of four sections laid out sequentially:
+The file consists of five sections laid out sequentially:
 
 ```
 ┌────────────────────────────────────┐
@@ -68,6 +68,9 @@ The file consists of four sections laid out sequentially:
 │  Index offset     4 bytes uint32LE │
 │  Index size       4 bytes uint32LE │
 │  Reserved         8 bytes          │
+├────────────────────────────────────┤
+│ Description (ASCII text)           │
+│  "Read with https://...FileMeta"   │
 ├────────────────────────────────────┤
 │ Image Data                         │
 │  Raw AVIF binaries, concatenated   │

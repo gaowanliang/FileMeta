@@ -1,11 +1,11 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import {
-  openDirectory, readFileTree, readDbFile, writeDbFile, deleteDbFile,
+  openDirectory, readFileTree, readDbFile, deleteDbFile,
   saveToHistory, getHistory, getHistoryEntry, removeFromHistory, reopenFromHistory,
   findDbFile, updateDbFilenameInHistory, DEFAULT_DB_FILENAME,
 } from '@/services/filesystem.js'
-import { decompressAndDecode } from '@/services/protobuf.js'
+import { decompressAndDecodeLegacy } from '@/services/protobuf.js'
 import { detectFormat, readFmdbFile, writeFmdbFile } from '@/services/container.js'
 import { revokeAllImageUrls, revokeImageUrl, getCachedImageUrl, createImageUrlFromBlob } from '@/services/image.js'
 
@@ -148,7 +148,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       } else if (format === 'legacy-pbgz') {
         // Legacy: decompress everything, put images into pendingImages for migration
         const buffer = new Uint8Array(await file.arrayBuffer())
-        const decoded = await decompressAndDecode(buffer)
+        const decoded = await decompressAndDecodeLegacy(buffer)
         files.value = decoded.files || {}
         pendingImages.value = decoded.images || {}
         // Schedule migration: next save writes FMDB under a new filename
@@ -322,7 +322,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function renameDbFile(newName) {
     if (!dirHandle.value) return
     const trimmed = newName.trim()
-    if (!trimmed || (!trimmed.endsWith('.fmdb') && !trimmed.endsWith('.pb.gz'))) {
+    if (!trimmed || !trimmed.endsWith('.fmdb')) {
       throw new Error('invalidName')
     }
     if (trimmed === dbFilename.value) return

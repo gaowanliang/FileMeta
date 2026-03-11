@@ -1,5 +1,4 @@
 export const DEFAULT_DB_FILENAME = '.annotations.fmdb'
-export const LEGACY_DB_FILENAME = '.annotations.pb.gz'
 const IDB_NAME = 'file-meta-history'
 const IDB_STORE = 'folders'
 const MAX_HISTORY = 20
@@ -170,13 +169,6 @@ export async function readDbFile(dirHandle, filename = DEFAULT_DB_FILENAME) {
   } catch {
     return null
   }
-}
-
-export async function writeDbFile(dirHandle, data, filename = DEFAULT_DB_FILENAME) {
-  const fileHandle = await dirHandle.getFileHandle(filename, { create: true })
-  const writable = await fileHandle.createWritable()
-  await writable.write(data)
-  await writable.close()
 }
 
 export async function deleteDbFile(dirHandle, filename) {

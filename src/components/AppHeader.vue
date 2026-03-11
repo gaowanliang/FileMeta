@@ -55,9 +55,6 @@ function parseDbFilename(full) {
   if (full.endsWith('.fmdb')) {
     return { base: full.slice(0, -5), ext: '.fmdb', custom: '' }
   }
-  if (full.endsWith('.pb.gz')) {
-    return { base: full.slice(0, -6), ext: '.pb.gz', custom: '' }
-  }
   return { base: full, ext: 'custom', custom: '' }
 }
 
@@ -77,7 +74,7 @@ async function handleRename() {
   dbRenameError.value = ''
   dbRenameSuccess.value = false
   const trimmed = computedNewDbName.value
-  if (!trimmed.endsWith('.fmdb') && !trimmed.endsWith('.pb.gz')) {
+  if (!trimmed.endsWith('.fmdb')) {
     dbRenameError.value = t('dbSettings.mustEndWithValidExt')
     return
   }
@@ -277,7 +274,6 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside, true
                   <label class="db-field-label">{{ t('dbSettings.extension') }}</label>
                   <select v-model="newDbExtOption" class="db-ext-select">
                     <option value=".fmdb">.fmdb</option>
-                    <option value=".pb.gz">.pb.gz (legacy)</option>
                     <option value="custom">{{ t('dbSettings.customExt') }}</option>
                   </select>
                 </div>

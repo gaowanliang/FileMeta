@@ -8,6 +8,8 @@ import {
 const MAGIC = new Uint8Array([0x46, 0x4D, 0x44, 0x42]) // "FMDB"
 const HEADER_SIZE = 32
 const FORMAT_VERSION = 1
+const DESC_LINE = 'Read with https://github.com/gaowanliang/FileMeta\n'
+const DESC_BYTES = new TextEncoder().encode(DESC_LINE)
 
 // ── Format detection ────────────────────────────────────────
 
@@ -133,7 +135,7 @@ export async function writeFmdbFile(fileHandle, { files, existingImages, newImag
   // 1. Build ordered image list and compute offsets
   const imageEntries = {}  // new ImageIndex
   const imageWriteOps = [] // { blob: Blob|Uint8Array }
-  let currentOffset = HEADER_SIZE
+  let currentOffset = HEADER_SIZE + DESC_BYTES.length
 
   // Existing images — zero-copy via file.slice()
   for (const [id, entry] of Object.entries(existingImages)) {
@@ -171,6 +173,7 @@ export async function writeFmdbFile(fileHandle, { files, existingImages, newImag
   // 4. Write sequentially
   const writable = await fileHandle.createWritable()
   await writable.write(header)
+  await writable.write(DESC_BYTES)
   for (const blob of imageWriteOps) {
     await writable.write(blob)
   }

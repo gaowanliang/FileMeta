@@ -52,15 +52,9 @@ function ensureUint8Array(buffer) {
   return buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
 }
 
-// ── Legacy WorkspaceDB encode/decode ────────────────────────
+// ── Legacy WorkspaceDB decode (migration only) ─────────────
 
-export function encode(data) {
-  const T = getTypes().WorkspaceDB
-  const msg = T.create(data)
-  return T.encode(msg).finish()
-}
-
-export function decode(buffer) {
+function decodeLegacy(buffer) {
   const T = getTypes().WorkspaceDB
   const msg = T.decode(ensureUint8Array(buffer))
   return T.toObject(msg, DECODE_OPTS)
@@ -108,15 +102,10 @@ export async function decompress(data) {
 
 // ── Combined helpers ────────────────────────────────────────
 
-// Legacy
-export async function encodeAndCompress(dbData) {
-  const encoded = encode(dbData)
-  return compress(encoded)
-}
-
-export async function decompressAndDecode(gzData) {
+// Legacy migration: decompress gzip → decode WorkspaceDB
+export async function decompressAndDecodeLegacy(gzData) {
   const decompressed = await decompress(gzData)
-  return decode(decompressed)
+  return decodeLegacy(decompressed)
 }
 
 // FMDB sections
