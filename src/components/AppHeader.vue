@@ -198,6 +198,17 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside, true
         </Transition>
       </div>
 
+      <!-- GitHub -->
+      <a
+        class="btn btn-ghost btn-icon-only"
+        href="https://github.com/gaowanliang/FileMeta"
+        target="_blank"
+        rel="noopener"
+        title="GitHub"
+      >
+        <i class="pi pi-github"></i>
+      </a>
+
       <!-- Dark mode -->
       <button
         class="btn btn-ghost btn-icon-only"
