@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import AppHeader from '@/components/AppHeader.vue'
 import FileTree from '@/components/FileTree.vue'
@@ -31,7 +31,20 @@ function onResizeEnd() {
   document.removeEventListener('mouseup', onResizeEnd)
 }
 
+// Ctrl+S → save
+function onKeyDown(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    if (store.hasFolder && store.isDirty && !store.isSaving) {
+      store.save()
+    }
+  }
+}
+
+onMounted(() => document.addEventListener('keydown', onKeyDown))
+
 onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup', onResizeEnd)
 })
