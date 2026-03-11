@@ -1,11 +1,13 @@
 <script setup>
 import { watch, onBeforeUnmount, ref, computed } from 'vue'
 import { useWorkspaceStore } from '@/stores/workspace.js'
+import { useSettingsStore } from '@/stores/settings.js'
 import { compressImage, createImageUrl } from '@/services/image.js'
 
 import MilkdownEditorInner from './MilkdownEditorInner.vue'
 
 const store = useWorkspaceStore()
+const settings = useSettingsStore()
 
 // Use key to force re-create editor when file changes or content is externally updated
 const editorRevision = ref(0)
@@ -15,12 +17,13 @@ const isProcessingImage = ref(false)
 // Debounce save
 let saveTimer = null
 function debounceSave() {
+  if (settings.autoSaveDelay === 0) return
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     if (store.isDirty && store.hasFolder) {
       store.save().catch(console.error)
     }
-  }, 3000)
+  }, settings.autoSaveDelay)
 }
 
 function onMarkdownUpdate(markdown) {
@@ -62,7 +65,10 @@ async function processImage(file) {
   if (!file || !store.selectedFile) return
   isProcessingImage.value = true
   try {
-    const { imageId, data } = await compressImage(file)
+    const { imageId, data } = await compressImage(file, {
+      quality: settings.imageQuality,
+      maxDim: settings.imageMaxDim,
+    })
     store.addImage(imageId, data)
 
     const imageMarkdown = `![image](local-avif://${imageId})`

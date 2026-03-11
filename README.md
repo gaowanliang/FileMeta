@@ -1,18 +1,56 @@
-# file-meta
+﻿# file-meta
 
 [中文文档](./README_zh.md)
 
-A browser-based tool for annotating files in local folders. No server, no account, no upload — everything stays on your machine. It's similar to TagSpaces but more lightweight, intended for simple, light-weight annotations.
+A browser-based tool for annotating local files with Markdown. Similar to TagSpaces, but more lightweight — designed for quick, casual notes.
 
 ## What it does
 
-You pick a local folder, and the app shows its file tree. Click any file and write Markdown notes about it. Paste or drag images in — they get compressed to tiny AVIF files automatically. All your annotations and images are packed into a single `.annotations.pb.gz` file at the folder root. Move the folder, share it, back it up — the annotations travel with it. Annotations are not tied to a particular machine — as long as file names remain unchanged, moving, sharing, or backing up the folder won't affect the annotations.
+Pick a local folder and the app displays its file tree on the left. Click any file to write Markdown annotations on the right. Paste or drag images in and they get compressed automatically into tiny AVIF files. All annotations and images are packed into a single `.annotations.pb.gz` file at the folder root. The data is machine-independent — as long as the file names stay the same, moving, sharing, or backing up the folder won't lose a single annotation.
+
+## Features
+
+### File Annotation
+- File tree on the left; click any file to start annotating with Markdown
+- Annotated files are marked with a bookmark icon
+- Search/filter files by name
+- Sidebar width is draggable
+
+### Image Support
+- Paste or drag-and-drop images directly into the editor
+- Automatically compressed via a WASM AVIF encoder; a 4 MB PNG typically becomes 50–150 KB
+- Images are embedded inline as `local-avif://<uuid>` — no external dependencies
+
+### Database File Management
+- Default database filename is `.annotations.pb.gz`
+- Fully customizable: the name and extension are entered separately, with `.pb.gz` as the default extension; a custom extension is also supported
+- The chosen filename is persisted in IndexedDB and restored automatically the next time the same folder is opened
+- When opening a folder, any `.pb.gz` file found at the root is detected and loaded automatically — no manual selection needed
+
+### Orphan Annotation Manager
+- When a file that has an annotation gets deleted or moved, the annotation is not lost — it becomes an "orphan"
+- A warning button appears in the header showing the orphan count
+- Clicking it opens a dedicated full-page manager: orphans are listed on the left, and a full Milkdown editor on the right lets you keep editing them
+- Orphans can be reassigned to any existing file in the tree, or deleted
+
+### Settings
+Click the gear icon in the top-right to open the settings page. The following options are available:
+
+| Category | Option | Description |
+|----------|--------|-------------|
+| Appearance | Dark Mode | Toggle between light and dark themes |
+| Appearance | Language | Chinese / English |
+| Editor | Auto-save delay | How long after you stop typing before saving. Can be disabled for manual-save only. |
+| Images | Compression quality | AVIF encoding quality: Low / Medium / High / Best |
+| Images | Max dimension | Scale images down before compression (720px – 1920px, or no limit) |
+
+All settings are saved to `localStorage` and persist across page reloads.
 
 ## How it works
 
-- **File access** happens through the browser's [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API). No server involved.
-- **Images** are compressed client-side using a WASM-based AVIF encoder. A 4MB PNG typically becomes 50–150KB. They're stored inline in the database, referenced as `local-avif://<uuid>` in Markdown.
-- **Storage format** is Protocol Buffers + gzip. The schema is simple:
+- **File access**: Uses the browser-native [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API). Entirely local — no server involved.
+- **Image compression**: Web Worker + WASM AVIF encoder, running off the main thread so the UI stays responsive.
+- **Storage format**: Protocol Buffers + gzip. The schema is minimal:
 
 ```protobuf
 message FileAnnotation {
@@ -26,12 +64,11 @@ message WorkspaceDB {
 }
 ```
 
-- **Auto-save** kicks in 3 seconds after you stop typing. Manual save is also available.
-- **Recent folders** are remembered via IndexedDB so you can reopen them without the folder picker.
+- **History**: Folder handles and database filenames are stored in IndexedDB so you can reopen recent folders from the history list without going through the folder picker again.
 
 ## Browser support
 
-Requires a Chromium-based browser (Chrome, Edge, Brave, Arc, etc.) because the File System Access API is only supported by these browsers; Firefox and Safari do not support `showDirectoryPicker`.
+Requires a Chromium-based browser (Chrome, Edge, Brave, Arc, etc.). The File System Access API is currently only supported by Chromium; Firefox and Safari are not compatible.
 
 ## Setup
 
@@ -49,8 +86,8 @@ npm run build
 ## Tech stack
 
 - Vue 3 + Vite + Pinia
-- [Milkdown](https://milkdown.dev/) (Markdown editor, built on ProseMirror)
+- [Milkdown](https://milkdown.dev/) (Markdown editor built on ProseMirror)
 - [@jsquash/avif](https://github.com/nicktomlin/jsquash) (WASM AVIF encoder)
 - protobufjs + native CompressionStream (gzip)
-- vue-i18n (English / Chinese)
+- vue-i18n (Chinese / English)
 - Tailwind CSS + PrimeIcons

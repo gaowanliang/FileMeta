@@ -4,6 +4,8 @@ import { useWorkspaceStore } from '@/stores/workspace.js'
 import AppHeader from '@/components/AppHeader.vue'
 import FileTree from '@/components/FileTree.vue'
 import AnnotationEditor from '@/components/AnnotationEditor.vue'
+import OrphanManager from '@/components/OrphanManager.vue'
+import SettingsPage from '@/components/SettingsPage.vue'
 
 const store = useWorkspaceStore()
 
@@ -65,6 +67,9 @@ onBeforeUnmount(() => {
         <AnnotationEditor />
       </main>
     </div>
+
+    <OrphanManager />
+    <SettingsPage />
   </div>
 </template>
 

@@ -28,13 +28,17 @@ function encodeInWorker(imageData, options) {
 /**
  * Compress image to AVIF using @jsquash/avif WASM encoder in a Web Worker.
  * Runs off the main thread so the UI stays responsive.
+ * @param {File} file
+ * @param {{ quality?: number, maxDim?: number }} [options]
  */
-export async function compressImage(file) {
+export async function compressImage(file, options = {}) {
+  const maxDim  = options.maxDim  ?? 1920
+  const quality = options.quality ?? 50
+
   const bitmap = await createImageBitmap(file)
 
-  const maxDim = 1920
   let { width, height } = bitmap
-  if (width > maxDim || height > maxDim) {
+  if (maxDim > 0 && (width > maxDim || height > maxDim)) {
     const ratio = Math.min(maxDim / width, maxDim / height)
     width = Math.round(width * ratio)
     height = Math.round(height * ratio)
@@ -48,7 +52,7 @@ export async function compressImage(file) {
   const imageData = ctx.getImageData(0, 0, width, height)
 
   const avifBuffer = await encodeInWorker(imageData, {
-    quality: 50,
+    quality,
     speed: 8,
     subsample: 1,
   })

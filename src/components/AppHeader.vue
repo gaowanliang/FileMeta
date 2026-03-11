@@ -1,10 +1,12 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace.js'
+import { useSettingsStore } from '@/stores/settings.js'
 
 const { t, locale } = useI18n()
 const store = useWorkspaceStore()
+const settingsStore = useSettingsStore()
 
 const languages = [
   { label: 'English', value: 'en' },
@@ -20,6 +22,22 @@ const openGroupRef = ref(null)
 const langOpen = ref(false)
 const langRef = ref(null)
 
+// DB settings panel
+const showDbSettings = ref(false)
+const dbSettingsPanelRef = ref(null)
+const dbSettingsGroupRef = ref(null)
+const newDbBaseName = ref('')
+const newDbExtOption = ref('.pb.gz')
+const newDbCustomExt = ref('')
+const dbRenameError = ref('')
+const dbRenameSuccess = ref(false)
+const isRenaming = ref(false)
+
+const computedNewDbName = computed(() => {
+  const ext = newDbExtOption.value === 'custom' ? newDbCustomExt.value.trim() : newDbExtOption.value
+  return newDbBaseName.value.trim() + ext
+})
+
 function toggleRecent() {
   showRecent.value = !showRecent.value
 }
@@ -31,6 +49,49 @@ function toggleLang() {
 function switchLanguage(value) {
   locale.value = value
   langOpen.value = false
+}
+
+function parseDbFilename(full) {
+  if (full.endsWith('.pb.gz')) {
+    return { base: full.slice(0, -6), ext: '.pb.gz', custom: '' }
+  }
+  return { base: full, ext: 'custom', custom: '' }
+}
+
+function toggleDbSettings() {
+  showDbSettings.value = !showDbSettings.value
+  if (showDbSettings.value) {
+    const parsed = parseDbFilename(store.dbFilename)
+    newDbBaseName.value = parsed.base
+    newDbExtOption.value = parsed.ext
+    newDbCustomExt.value = parsed.custom
+    dbRenameError.value = ''
+    dbRenameSuccess.value = false
+  }
+}
+
+async function handleRename() {
+  dbRenameError.value = ''
+  dbRenameSuccess.value = false
+  const trimmed = computedNewDbName.value
+  if (!trimmed.endsWith('.pb.gz')) {
+    dbRenameError.value = t('dbSettings.mustEndWithPbGz')
+    return
+  }
+  if (trimmed === store.dbFilename) {
+    dbRenameError.value = t('dbSettings.sameNameError')
+    return
+  }
+  isRenaming.value = true
+  try {
+    await store.renameDbFile(trimmed)
+    dbRenameSuccess.value = true
+    setTimeout(() => { dbRenameSuccess.value = false }, 2500)
+  } catch {
+    dbRenameError.value = t('dbSettings.renameError')
+  } finally {
+    isRenaming.value = false
+  }
 }
 
 async function handleOpen() {
@@ -83,6 +144,11 @@ function onClickOutside(event) {
   }
   if (langRef.value && !langRef.value.contains(event.target)) {
     langOpen.value = false
+  }
+  if (dbSettingsPanelRef.value && dbSettingsGroupRef.value &&
+      !dbSettingsPanelRef.value.contains(event.target) &&
+      !dbSettingsGroupRef.value.contains(event.target)) {
+    showDbSettings.value = false
   }
 }
 
@@ -159,6 +225,96 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside, true
     </div>
 
     <div class="header-right">
+      <!-- Orphaned annotations alert button -->
+      <button
+        v-if="store.hasFolder && store.orphanedFiles.length > 0"
+        class="btn btn-warning"
+        @click="store.showOrphanManager = true"
+        :title="t('orphan.button', { count: store.orphanedFiles.length })"
+      >
+        <i class="pi pi-exclamation-triangle"></i>
+        <span>{{ t('orphan.button', { count: store.orphanedFiles.length }) }}</span>
+      </button>
+
+      <!-- DB file settings -->
+      <div v-if="store.hasFolder" class="db-settings-group" ref="dbSettingsGroupRef">
+        <button
+          class="btn btn-ghost db-file-btn"
+          @click.stop="toggleDbSettings"
+          :title="t('dbSettings.button')"
+        >
+          <i class="pi pi-database"></i>
+          <span class="db-filename-label">{{ store.dbFilename }}</span>
+          <i class="pi pi-chevron-down db-chevron" :class="{ 'chevron-open': showDbSettings }"></i>
+        </button>
+
+        <Transition name="slide-fade">
+          <div v-if="showDbSettings" ref="dbSettingsPanelRef" class="db-settings-panel">
+            <div class="db-panel-header">
+              <i class="pi pi-database"></i>
+              <span>{{ t('dbSettings.title') }}</span>
+            </div>
+
+            <div class="db-panel-body">
+              <label class="db-field-label">{{ t('dbSettings.currentFile') }}</label>
+              <div class="db-current-name">{{ store.dbFilename }}</div>
+
+              <div class="db-split-row" style="margin-top:10px">
+                <div class="db-split-col db-split-name">
+                  <label class="db-field-label">{{ t('dbSettings.baseName') }}</label>
+                  <input
+                    v-model="newDbBaseName"
+                    class="db-name-input"
+                    type="text"
+                    :placeholder="t('dbSettings.baseNamePlaceholder')"
+                    @keyup.enter="handleRename"
+                  />
+                </div>
+                <div class="db-split-col db-split-ext">
+                  <label class="db-field-label">{{ t('dbSettings.extension') }}</label>
+                  <select v-model="newDbExtOption" class="db-ext-select">
+                    <option value=".pb.gz">.pb.gz</option>
+                    <option value="custom">{{ t('dbSettings.customExt') }}</option>
+                  </select>
+                </div>
+              </div>
+              <input
+                v-if="newDbExtOption === 'custom'"
+                v-model="newDbCustomExt"
+                class="db-name-input"
+                type="text"
+                style="margin-top:4px"
+                :placeholder="t('dbSettings.customExtPlaceholder')"
+                @keyup.enter="handleRename"
+              />
+              <div class="db-preview" v-if="computedNewDbName">
+                <i class="pi pi-file"></i>
+                <span>{{ computedNewDbName }}</span>
+              </div>
+
+              <div v-if="dbRenameError" class="db-msg db-msg-error">
+                <i class="pi pi-times-circle"></i> {{ dbRenameError }}
+              </div>
+              <div v-if="dbRenameSuccess" class="db-msg db-msg-success">
+                <i class="pi pi-check-circle"></i> {{ t('dbSettings.renamed') }}
+              </div>
+
+              <p class="db-hint">{{ t('dbSettings.hint') }}</p>
+
+              <button
+                class="btn btn-primary db-rename-btn"
+                :disabled="isRenaming || !computedNewDbName"
+                @click="handleRename"
+              >
+                <i v-if="isRenaming" class="pi pi-spin pi-spinner"></i>
+                <i v-else class="pi pi-pencil"></i>
+                <span>{{ isRenaming ? t('dbSettings.renaming') : t('dbSettings.rename') }}</span>
+              </button>
+            </div>
+          </div>
+        </Transition>
+      </div>
+
       <!-- Status -->
       <div v-if="store.hasFolder" class="status-badge" :class="{ saving: store.isSaving, dirty: store.isDirty }">
         <i class="pi" :class="store.isSaving ? 'pi-spin pi-spinner' : store.isDirty ? 'pi-circle-fill' : 'pi-check-circle'"></i>
@@ -208,6 +364,15 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside, true
       >
         <i class="pi pi-github"></i>
       </a>
+
+      <!-- Settings -->
+      <button
+        class="btn btn-ghost btn-icon-only"
+        @click="settingsStore.showSettings = true"
+        :title="t('settings.title')"
+      >
+        <i class="pi pi-cog"></i>
+      </button>
 
       <!-- Dark mode -->
       <button
@@ -427,5 +592,209 @@ onBeforeUnmount(() => document.removeEventListener('click', onClickOutside, true
 
 .status-badge i {
   font-size: 0.45rem;
+}
+
+/* Orphan warning button */
+.btn-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 0.75rem;
+  height: 26px;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.btn-warning:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.btn-warning i {
+  font-size: 0.8rem;
+}
+
+/* DB settings group */
+.db-settings-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.db-file-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  padding: 0 8px;
+  height: 26px;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+
+.db-file-btn:hover {
+  border-color: var(--sidebar-border);
+  color: var(--text-secondary);
+}
+
+.db-filename-label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-chevron {
+  font-size: 0.6rem;
+  transition: transform 0.2s;
+}
+
+.db-chevron.chevron-open {
+  transform: rotate(180deg);
+}
+
+/* DB settings panel */
+.db-settings-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--header-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  width: 300px;
+  overflow: hidden;
+}
+
+.db-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.db-panel-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.db-field-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.db-current-name {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(128,128,128,0.07);
+  border-radius: 4px;
+  padding: 4px 8px;
+  word-break: break-all;
+}
+
+.db-name-input {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--sidebar-border);
+  background: var(--editor-bg);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.db-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.db-split-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.db-split-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.db-split-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.db-split-ext {
+  flex-shrink: 0;
+}
+
+.db-ext-select {
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--sidebar-border);
+  background: var(--editor-bg);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.db-ext-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.db-preview {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 0.76rem;
+  color: var(--accent-text);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.db-preview .pi {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.db-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 4px 0 6px;
+}
+
+.db-msg {
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.db-msg-error { color: #ef4444; }
+.db-msg-success { color: #22c55e; }
+
+.db-rename-btn {
+  align-self: flex-end;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 0.78rem;
 }
 </style>

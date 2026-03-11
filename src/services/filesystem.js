@@ -1,4 +1,4 @@
-const DB_FILENAME = '.annotations.pb.gz'
+export const DEFAULT_DB_FILENAME = '.annotations.pb.gz'
 const IDB_NAME = 'file-meta-history'
 const IDB_STORE = 'folders'
 const MAX_HISTORY = 20
@@ -31,13 +31,15 @@ function openIDB() {
   })
 }
 
-export async function saveToHistory(handle) {
+export async function saveToHistory(handle, dbFilename = undefined) {
   const db = await openIDB()
   const tx = db.transaction(IDB_STORE, 'readwrite')
   const store = tx.objectStore(IDB_STORE)
 
-  // Upsert: store handle + timestamp
-  store.put({ name: handle.name, handle, openedAt: Date.now() })
+  // Upsert: store handle + timestamp + optional dbFilename
+  const entry = { name: handle.name, handle, openedAt: Date.now() }
+  if (dbFilename !== undefined) entry.dbFilename = dbFilename
+  store.put(entry)
 
   return new Promise((resolve, reject) => {
     tx.oncomplete = async () => {
@@ -47,13 +49,42 @@ export async function saveToHistory(handle) {
         if (all.length > MAX_HISTORY) {
           const tx2 = db.transaction(IDB_STORE, 'readwrite')
           const store2 = tx2.objectStore(IDB_STORE)
-          for (const entry of all.slice(MAX_HISTORY)) {
-            store2.delete(entry.name)
+          for (const e of all.slice(MAX_HISTORY)) {
+            store2.delete(e.name)
           }
         }
       } catch { /* ignore prune errors */ }
       resolve()
     }
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+export async function getHistoryEntry(folderName) {
+  const db = await openIDB()
+  const tx = db.transaction(IDB_STORE, 'readonly')
+  const store = tx.objectStore(IDB_STORE)
+  return new Promise((resolve, reject) => {
+    const req = store.get(folderName)
+    req.onsuccess = () => resolve(req.result || null)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+export async function updateDbFilenameInHistory(folderName, newFilename) {
+  const db = await openIDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    const store = tx.objectStore(IDB_STORE)
+    const getReq = store.get(folderName)
+    getReq.onsuccess = () => {
+      const entry = getReq.result
+      if (entry) {
+        entry.dbFilename = newFilename
+        store.put(entry)
+      }
+    }
+    tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
 }
@@ -91,16 +122,15 @@ export async function reopenFromHistory(entry) {
     throw new Error('Permission denied')
   }
   rootHandle = handle
-  // Update timestamp
-  await saveToHistory(handle)
   return handle
 }
 
-export async function readFileTree(dirHandle, basePath = '') {
+export async function readFileTree(dirHandle, basePath = '', excludeAtRoot = new Set()) {
   const entries = []
 
   for await (const [name, handle] of dirHandle) {
     if (name.startsWith('.')) continue
+    if (basePath === '' && excludeAtRoot.has(name)) continue
 
     const path = basePath ? `${basePath}/${name}` : name
 
@@ -131,9 +161,9 @@ export async function readFileTree(dirHandle, basePath = '') {
   return entries
 }
 
-export async function readDbFile(dirHandle) {
+export async function readDbFile(dirHandle, filename = DEFAULT_DB_FILENAME) {
   try {
-    const fileHandle = await dirHandle.getFileHandle(DB_FILENAME)
+    const fileHandle = await dirHandle.getFileHandle(filename)
     const file = await fileHandle.getFile()
     const buffer = await file.arrayBuffer()
     return new Uint8Array(buffer)
@@ -142,11 +172,29 @@ export async function readDbFile(dirHandle) {
   }
 }
 
-export async function writeDbFile(dirHandle, data) {
-  const fileHandle = await dirHandle.getFileHandle(DB_FILENAME, { create: true })
+export async function writeDbFile(dirHandle, data, filename = DEFAULT_DB_FILENAME) {
+  const fileHandle = await dirHandle.getFileHandle(filename, { create: true })
   const writable = await fileHandle.createWritable()
   await writable.write(data)
   await writable.close()
+}
+
+export async function deleteDbFile(dirHandle, filename) {
+  try {
+    await dirHandle.removeEntry(filename)
+  } catch {
+    // Ignore — file may not exist yet
+  }
+}
+
+/** Scan root of dirHandle for the first *.pb.gz file; returns its name or null. */
+export async function findPbGzFile(dirHandle) {
+  for await (const [name, handle] of dirHandle) {
+    if (handle.kind === 'file' && name.endsWith('.pb.gz')) {
+      return name
+    }
+  }
+  return null
 }
 
 function getFileIcon(name) {
